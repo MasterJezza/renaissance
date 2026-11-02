@@ -1,0 +1,5 @@
+# Körningsdata (exporter, skärmbilder, webbläsarprofil) får aldrig checkas in
+run/
+*.xlsx
+*.png
+__pycache__/
