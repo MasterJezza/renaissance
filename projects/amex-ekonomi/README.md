@@ -28,11 +28,21 @@ miljövariabler om den sektionen saknas:
 Nätverket måste släppa igenom `americanexpress.com` (det gör det i nuvarande
 miljö).
 
+> **Status 2026-11-02: inloggningen blockeras från molnet.** Amex bot-skydd
+> (Akamai) svarar `403` på inloggningsanropet
+> `global.americanexpress.com/myca/logon/emea/action/login` från molncontainerns
+> IP-adress. Det gäller även en vanlig `curl` utan uppgifter, så blockeringen
+> beror på nätverksursprunget och inte på webbläsaren. Anropet stoppas i
+> Akamais kant och når aldrig Amex inloggning, så det påverkar inte kontot.
+> Inloggningsdelen behöver därför köras från en dator med vanlig
+> internetanslutning (t.ex. via Remote Control). Övriga delar (`importer.py`,
+> Sheets-skrivningen) fungerar i molnet.
+
 ## Köra lokalt eller testa
 
 ```bash
 cd projects/amex-ekonomi
-node amex.js daemon &          # webbläsaren i bakgrunden
+xvfb-run -a node amex.js daemon &   # webbläsaren i bakgrunden (utan xvfb: headless)
 node amex.js login             # → {"state": "logged_in" | "otp_required" | ...}
 node amex.js otp-email         # vid otp_required
 node amex.js otp 123456

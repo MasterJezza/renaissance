@@ -47,10 +47,12 @@ cd projects/amex-ekonomi && mkdir -p run && rm -rf run/cmd run/res run/*.png run
 python3 -c "import openpyxl" 2>/dev/null || pip install -q openpyxl
 ```
 
-Starta webbläsaren i bakgrunden (Bash med `run_in_background: true`):
+Starta webbläsaren i bakgrunden (Bash med `run_in_background: true`). Den körs
+som fullständig Chromium i en virtuell skärm, eftersom Amex bot-skydd avvisar
+"headless shell":
 
 ```bash
-node amex.js daemon
+xvfb-run -a -s "-screen 0 1366x900x24" node amex.js daemon
 ```
 
 Vänta tills `run/status.json` visar `"state": "started"` och kör sedan
@@ -74,6 +76,10 @@ Svaret är JSON med `state`:
 - `captcha`, `login_error`, `wrong_domain`, `missing_secrets`,
   `password_not_filled` – hårt stopp.
 - `unknown` – läs `text` och skärmbilden innan något annat görs.
+- `login_page` (formuläret står kvar utan felmeddelande) – läs
+  `run/netlog.txt`. Om `POST …/myca/logon/emea/action/login` visar `FAILED`
+  eller `403` blockerar Amex bot-skydd (Akamai) anslutningen. Det är ett hårt
+  stopp: försök inte igen och försök inte kringgå skyddet.
 
 **Hämta engångskoden från e-posten (Superhuman-anslutningen):** kör
 `list_accounts`, och sök sedan i varje konto efter det senaste mejlet från

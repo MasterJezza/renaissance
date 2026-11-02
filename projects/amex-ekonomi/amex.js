@@ -30,8 +30,6 @@ const STATUS = path.join(RUN_DIR, 'status.json');
 const LOGIN_URL =
   'https://www.americanexpress.com/sv-se/account/login?DestPage=https://global.americanexpress.com/activity/recent';
 const ACTIVITY_URL = 'https://global.americanexpress.com/activity/recent';
-const UA =
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const now = () => new Date().toISOString();
@@ -57,11 +55,14 @@ async function daemon() {
   fs.mkdirSync(RES_DIR, { recursive: true });
   fs.mkdirSync(path.join(RUN_DIR, 'net'), { recursive: true });
 
+  // Fullständig Chromium (inte "headless shell") och ingen falsk
+  // användaragent: Amex bot-skydd avvisar annars inloggningen tyst. Med
+  // DISPLAY satt (xvfb-run) körs webbläsaren med fönster i en virtuell skärm.
   const context = await chromium.launchPersistentContext(path.join(RUN_DIR, 'profile'), {
-    headless: true,
+    channel: 'chromium',
+    headless: !process.env.DISPLAY,
     locale: 'sv-SE',
     timezoneId: 'Europe/Stockholm',
-    userAgent: UA,
     viewport: { width: 1366, height: 900 },
     acceptDownloads: true,
     args: ['--disable-blink-features=AutomationControlled'],
@@ -88,7 +89,28 @@ async function daemon() {
     }
   });
 
-  writeStatus({ state: 'started', pid: process.pid });
+  // Felsökningslogg för inloggningen: metod, adress utan query och status.
+  // Inga request- eller svarskroppar sparas (POST-kroppen innehåller lösenordet).
+  const NETLOG = path.join(RUN_DIR, 'netlog.txt');
+  page.on('requestfinished', async (req) => {
+    try {
+      const u = new URL(req.url());
+      if (!isAmexHost(u.href) || !/login|logon|auth|elilo|myca|otp|verif/i.test(u.pathname)) return;
+      const resp = await req.response();
+      fs.appendFileSync(NETLOG, `${now()} ${req.method()} ${u.origin}${u.pathname} ${resp ? resp.status() : '-'}\n`);
+    } catch {
+      /* ignoreras */
+    }
+  });
+  page.on('requestfailed', (req) => {
+    try {
+      const u = new URL(req.url());
+      if (!isAmexHost(u.href)) return;
+      fs.appendFileSync(NETLOG, `${now()} ${req.method()} ${u.origin}${u.pathname} FAILED ${req.failure()?.errorText}\n`);
+    } catch {}
+  });
+
+  writeStatus({ state: 'started', pid: process.pid, headless: !process.env.DISPLAY });
   let seq = 0;
   let running = true;
   while (running) {
@@ -136,7 +158,9 @@ async function shot(page, name) {
 
 async function visibleText(page, max = 6000) {
   try {
-    const t = await page.evaluate(() => document.body.innerText);
+    // Amex sidor stänger av eval i sidans värld, så page.evaluate fungerar
+    // inte. innerText() körs i Playwrights isolerade värld och påverkas inte.
+    const t = await page.locator('body').innerText({ timeout: 10000 });
     return t.replace(/\n{2,}/g, '\n').slice(0, max);
   } catch {
     return '';
@@ -281,8 +305,10 @@ async function login(page) {
   await userField.waitFor({ state: 'visible', timeout: 20000 });
   await userField.fill(user);
   await passField.fill(pass);
-  // Verifiering utan att läsa värdet: bara att fältet är icke-tomt och maskerat.
-  const filled = await passField.evaluate((el) => el.type === 'password' && el.value.length > 0);
+  // Verifiering utan att visa värdet: bara att fältet är icke-tomt och maskerat.
+  // (locator.evaluate går inte att använda – Amex stänger av eval.)
+  const filled =
+    (await passField.getAttribute('type')) === 'password' && (await passField.inputValue()).length > 0;
   if (!filled) return { ok: false, state: 'password_not_filled' };
 
   const clicked = await clickFirstVisible(page, [
